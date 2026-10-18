@@ -41,6 +41,33 @@ async function throttled<T>(fn: () => Promise<T>): Promise<T> {
     return fn();
 }
 
+/**
+ * Interpret API responses without mistaking an HTML challenge/error page
+ * for either a valid KRS extract or a missing company. Never log raw HTML,
+ * body text, redirect query strings or credentials.
+ */
+export async function parseApiResponse<T>(res: Response): Promise<T | null> {
+    const contentType = res.headers.get("content-type") ?? "missing";
+    const finalHost = (() => {
+        try { return new URL(res.url).hostname; } catch { return "unknown"; }
+    })();
+    const safeInfo = `HTTP ${res.status}; content-type=${contentType.slice(0, 100)}; host=${finalHost}`;
+    const json = /(?:^|\\s|;)application\\/(?:[a-z0-9.+-]*\\+)?json(?:\\s*;|\\s*$)/i.test(contentType);
+    // A 404 produced by a non-JSON reverse proxy is not a verified KRS miss.
+    if (res.status === 404 && json) return null;
+    if (!res.ok) throw new Error(`MS KRS API failure (${safeInfo})`);
+    if (!json) throw new Error(`MS KRS API returned non-JSON response (${safeInfo})`);
+    try {
+        const value: unknown = await res.json();
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+            throw new Error("Expected JSON object");
+        }
+        return value as T;
+    } catch {
+        throw new Error(`MS KRS API invalid JSON response (${safeInfo})`);
+    }
+}
+
 async function apiGet<T>(path: string): Promise<T | null> {
     const url = `${BASE_URL}${path}`;
     const controller = new AbortController();
@@ -55,11 +82,7 @@ async function apiGet<T>(path: string): Promise<T | null> {
             },
             signal: controller.signal,
         });
-        if (res.status === 404) return null;
-        if (!res.ok) {
-            throw new Error(`MS KRS API HTTP ${res.status} ${res.statusText}`);
-        }
-        return (await res.json()) as T;
+        return await parseApiResponse<T>(res);
     } finally {
         clearTimeout(timer);
     }
@@ -624,7 +647,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
     } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (/404|not found/i.test(msg)) {
+        if (/^verified-not-found$/i.test(msg)) {
             return errorResult(`KRS nie znaleziony w MS API: ${msg}.`, "not_found");
         }
         return errorResult(
