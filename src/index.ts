@@ -16,6 +16,7 @@
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { parseApiResponse } from "./api-response.js";
 import {
     CallToolRequestSchema,
     ListToolsRequestSchema,
@@ -55,11 +56,7 @@ async function apiGet<T>(path: string): Promise<T | null> {
             },
             signal: controller.signal,
         });
-        if (res.status === 404) return null;
-        if (!res.ok) {
-            throw new Error(`MS KRS API HTTP ${res.status} ${res.statusText}`);
-        }
-        return (await res.json()) as T;
+        return await parseApiResponse<T>(res);
     } finally {
         clearTimeout(timer);
     }
@@ -624,7 +621,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
     } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (/404|not found/i.test(msg)) {
+        if (/^verified-not-found$/i.test(msg)) {
             return errorResult(`KRS nie znaleziony w MS API: ${msg}.`, "not_found");
         }
         return errorResult(
