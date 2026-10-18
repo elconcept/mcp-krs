@@ -10,7 +10,8 @@
     "dev": "tsx src/index.ts",
     "drift": "node test/drift.mjs",
     "smoke": "node test/smoke.mjs",
-    "test": "npm run build && npm run drift && npm run smoke"
+    "test": "npm run build && npm run drift && npm run test:unit && npm run smoke",
+    "test:unit": "node --test test/api-response.mjs"
   },
   "keywords": [
     "mcp",
