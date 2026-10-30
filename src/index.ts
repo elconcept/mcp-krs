@@ -480,9 +480,9 @@ const TOOLS = [
         name: "get_entity_full",
         annotations: READ_ONLY_ANNOTATIONS,
         description:
-            "Pobiera ODPIS PELNY z KRS (z historia wpisow - kazda zmiana, kazde " +
-            "wykreslenie, wszystkie poprzednie sklady zarzadu). Wieksza odpowiedz, " +
-            "uzywaj kiedy potrzebujesz historii zmian, nie tylko stanu aktualnego.",
+            "Pobiera ODPIS PEŁNY z KRS (z historią wpisów) i aktualny odpis do ustalenia bieżącego stanu. " +
+            "Historia jest udostępniana bezstratnie w fragmentach przez offset/limit; " +
+            "zwraca nextOffset i hasMore, a historyczne wpisy nie są interpretowane jako obecny status.",
         inputSchema: {
             type: "object",
             properties: {
@@ -492,8 +492,19 @@ const TOOLS = [
                 },
                 rejestr: {
                     type: "string",
-                    description: "Rejestr: 'P' (default) lub 'S'.",
+                    description: "Rejestr: 'P' (domyślnie) lub 'S'.",
                     enum: ["P", "S"],
+                },
+                offset: {
+                    type: "number",
+                    description: "Pozycja pierwszego znaku historii odpisu pełnego (od 0).",
+                    minimum: 0,
+                },
+                limit: {
+                    type: "number",
+                    description: "Liczba znaków historii (200–20000, domyślnie 8000).",
+                    minimum: 200,
+                    maximum: 20000,
                 },
             },
             required: ["krs"],
