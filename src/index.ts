@@ -134,6 +134,7 @@ interface OsobaSkladuOrganu {
 
 interface Organ {
     nazwa?: string;
+    nazwaOrganu?: string;
     sklad?: OsobaSkladuOrganu[];
     sposobReprezentacji?: string;
 }
@@ -289,8 +290,8 @@ function formatEntity(krs: string, odpis: Odpis): string {
     if (reprezentacja?.sposobReprezentacji) {
         lines.push(`Sposob : ${reprezentacja.sposobReprezentacji}`);
     }
-    if (reprezentacja?.nazwa) {
-        lines.push(`Organ  : ${reprezentacja.nazwa}`);
+    if (reprezentacja?.nazwaOrganu || reprezentacja?.nazwa) {
+        lines.push(`Organ  : ${reprezentacja.nazwaOrganu ?? reprezentacja.nazwa}`);
     }
     if (reprezentacja?.sklad?.length) {
         lines.push("Sklad  :");
@@ -333,6 +334,38 @@ function formatEntity(krs: string, odpis: Odpis): string {
     return lines.join("\n");
 }
 
+/**
+ * Odpis pełny ma historyczne TABLICE wpisów, nie tę samą strukturę co aktualny.
+ * Nie wolno wykrywać bieżącego statusu przez truthiness pól historii.
+ * Zachowaj cały dokument historyczny w kolejnych bezstratnych fragmentach.
+ */
+function formatFullHistory(krs: string, full: Odpis, current: Odpis, offset: number, limit: number) {
+    const history = JSON.stringify(full, null, 2);
+    const totalLength = history.length;
+    const safeOffset = Math.max(0, Math.min(totalLength, Math.floor(offset)));
+    const safeLimit = Math.max(200, Math.min(20000, Math.floor(limit)));
+    const chunk = history.slice(safeOffset, safeOffset + safeLimit);
+    const nextOffset = safeOffset + chunk.length;
+    const hasMore = nextOffset < totalLength;
+    const summary = formatEntity(krs, current);
+    const lines = [
+        summary,
+        "",
+        "=== ODPIS PEŁNY — HISTORIA WPISÓW KRS ===",
+        "Uwaga: status i skład bieżący pochodzą z odpisu AKTUALNEGO, historia z odpisu PEŁNEGO.",
+        "Poniżej surowe dane historyczne JSON Ministerstwa Sprawiedliwości. Pól historycznych nie należy traktować jako aktualnego stanu.",
+        `Zakres znaków: ${safeOffset}–${nextOffset} z ${totalLength}.`,
+        hasMore ? `Dalszy fragment: get_entity_full(krs="${krs}", offset=${nextOffset}, limit=${safeLimit}).` : "Koniec odpisu pełnego.",
+        "",
+        chunk,
+    ];
+    return {
+        text: lines.join("\n"),
+        totalLength, returnedLength: chunk.length, offset: safeOffset, hasMore,
+        nextOffset: hasMore ? nextOffset : null,
+    };
+}
+
 function formatBoardOnly(krs: string, odpis: Odpis): string {
     const dp = odpis.dane?.dzial1?.danePodmiotu;
     const reprezentacja = odpis.dane?.dzial2?.reprezentacja;
@@ -346,7 +379,7 @@ function formatBoardOnly(krs: string, odpis: Odpis): string {
         lines.push(reprezentacja.sposobReprezentacji);
         lines.push("");
     }
-    if (reprezentacja?.nazwa) lines.push(`Organ: ${reprezentacja.nazwa}`);
+    if (reprezentacja?.nazwaOrganu || reprezentacja?.nazwa) lines.push(`Organ: ${reprezentacja.nazwaOrganu ?? reprezentacja.nazwa}`);
     if (reprezentacja?.sklad?.length) {
         lines.push("Sklad zarzadu/wladz:");
         for (const o of reprezentacja.sklad) {
@@ -576,23 +609,28 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             }
 
             case "get_entity_full": {
-                const { krs, odpis } = await fetchOdpis(
-                    krsRaw,
-                    rejestr,
-                    "OdpisPelny",
-                );
-                if (!odpis) {
-                    return errorResult(
-                        `Brak odpisu pelnego dla KRS ${krs} (rejestr "${rejestr}").`,
-                        "not_found",
-                    );
+                const { krs, odpis: full } = await fetchOdpis(krsRaw, rejestr, "OdpisPelny");
+                if (!full) {
+                    return errorResult(`Brak odpisu pełnego dla KRS ${krs} (rejestr "${rejestr}").`, "not_found");
                 }
-                // Format identyczny - dane sa wieksze (historia w wartosciach),
-                // LLM dostaje pelen plik tekstowy.
+                // Odpis pełny nie ma struktury "dane" równoważnej aktualnemu.
+                // Pobierz aktualny, by ustalić stan firmy i zapewnić prawidłowe citations.
+                const { odpis: current } = await fetchOdpis(krsRaw, rejestr, "OdpisAktualny");
+                if (!current) {
+                    return errorResult(`Nie udało się zweryfikować aktualnego stanu KRS ${krs}.`, "upstream_error");
+                }
+                const offset = typeof a.offset === "number" && Number.isFinite(a.offset) ? a.offset : 0;
+                const limit = typeof a.limit === "number" && Number.isFinite(a.limit) ? a.limit : 8000;
+                const result = formatFullHistory(krs, full, current, offset, limit);
                 return {
-                    content: [{ type: "text", text: formatEntity(krs, odpis) }],
+                    content: [{ type: "text", text: result.text }],
                     structuredContent: {
-                        citations: [buildCitation(krs, odpis)],
+                        citations: [buildCitation(krs, current)],
+                        totalLength: result.totalLength,
+                        returnedLength: result.returnedLength,
+                        offset: result.offset,
+                        hasMore: result.hasMore,
+                        nextOffset: result.nextOffset,
                     },
                 };
             }
