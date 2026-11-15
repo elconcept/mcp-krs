@@ -1,6 +1,6 @@
 # mcp-krs - odpisy KRS (api-krs.ms.gov.pl) (stdio z repo -> supergateway, Streamable HTTP /mcp, port 8000). Stack Portainera "mcp-krs".
 # Port na hoscie 8407 (LAN, bez autoryzacji: http://10.0.10.201:8407/mcp). Z internetu: https://mcp-krs.xlap.pl/mcp - tunel cloudflared, bez Access (publiczny,
-# bezstanowy - konektory claude.ai/ChatGPT). cf_mcp_krs: cloudflared + ten serwis, z wyjsciem do internetu.
+# bezstanowy - konektory claude.ai/ChatGPT). cf_edge_mcp: cloudflared + ten serwis, z wyjsciem do internetu.
 # Przebudowa po pushu na main: deploy-hook (.github/workflows/deploy.yml).
 services:
   mcp-krs:
@@ -15,7 +15,7 @@ services:
     ports:
       - "8407:8000"
     networks:
-      - cf_mcp_krs
+      - cf_edge_mcp
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8000/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
       interval: 30s
@@ -24,5 +24,5 @@ services:
     restart: unless-stopped
 
 networks:
-  cf_mcp_krs:
+  cf_edge_mcp:
     external: true
