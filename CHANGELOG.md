@@ -3,6 +3,16 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) +
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] — 2026-11-15
+
+### Fixed
+
+- `get_entity_full`: preserves versioned historical KRS entries and does not coerce objects into `[object Object]`.
+- Current status and representation are sourced from a separate current extract, not historical dissolution or liquidation entries.
+- Includes extract date and history provenance in structured citations; explicit warning when current extract is unavailable.
+- NAS deployment uses the existing external Docker network `cf_edge_mcp` instead of the nonexistent `cf_mcp_krs`.
+- Live regression scenario for mBank SA (KRS `0000025237`).
+
 ## [1.1.0] — 2026-05-25
 
 Retrofit do kanonu MCP MateMatic (pattern z dograh v1.31.0 BSD-2). Backward-compatible.
