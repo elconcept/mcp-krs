@@ -195,6 +195,7 @@ interface KrsCitation {
     miejscowosc?: string;
     sad_rejestrowy?: string;
     rejestr?: string;
+    odpis_date?: string;
 }
 
 function detectStatus(d?: OdpisData): string {
@@ -236,6 +237,9 @@ function buildCitation(krs: string, odpis: Odpis): KrsCitation {
                 odpis.naglowekA.oznaczenieSaduDokonujacegoOstatniegoWpisu,
         }),
         ...(odpis.naglowekA?.rejestr && { rejestr: odpis.naglowekA.rejestr }),
+        ...((odpis.naglowekA?.dataCzasOdpisu ?? odpis.naglowekA?.stanZDnia) && {
+            odpis_date: odpis.naglowekA?.dataCzasOdpisu ?? odpis.naglowekA?.stanZDnia,
+        }),
     };
 }
 
@@ -331,6 +335,41 @@ function formatEntity(krs: string, odpis: Odpis): string {
         );
     }
     return lines.join("\n");
+}
+
+/**
+ * The full extract has versioned arrays with nrWpisuWprow/nrWpisuWykr.
+ * Do not coerce historical records into strings or present-day status.
+ */
+function formatFullHistory(krs: string, full: Odpis, current: Odpis | null): string {
+    const lines = [
+        `=== ODPIS PELNY KRS ${krs} ===`,
+        "Wpisy historyczne nie okreslaja samodzielnie aktualnego statusu.",
+        "",
+    ];
+    if (current) {
+        lines.push("--- STAN AKTUALNY (odrebny odpis) ---", formatEntity(krs, current), "");
+    } else {
+        lines.push("UWAGA: Odpis aktualny niedostepny; nazwa, status i reprezentacja aktualna nie zostaly ustalone.", "");
+    }
+    lines.push(
+        "--- PELNA HISTORIA WPISOW (JSON z numerami wprowadzenia i wykreslenia) ---",
+        JSON.stringify(full, null, 2),
+        "",
+        `Zrodlo: ${krsUiUrl(krs)}`,
+    );
+    return lines.join("\n");
+}
+
+function buildHistoricalCitation(krs: string, full: Odpis): KrsCitation {
+    const date = full.naglowekA?.dataCzasOdpisu ?? full.naglowekA?.stanZDnia;
+    return {
+        title: `Odpis pelny KRS ${krs} (historia, status aktualny nieustalony)`,
+        url: krsUiUrl(krs),
+        krs,
+        ...(date && { odpis_date: date }),
+        ...(full.naglowekA?.rejestr && { rejestr: full.naglowekA.rejestr }),
+    };
 }
 
 function formatBoardOnly(krs: string, odpis: Odpis): string {
@@ -587,12 +626,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                         "not_found",
                     );
                 }
-                // Format identyczny - dane sa wieksze (historia w wartosciach),
-                // LLM dostaje pelen plik tekstowy.
+                // Versioned history cannot determine current status by itself.
+                // Keep valid history even when the separate current lookup fails.
+                let current: Odpis | null = null;
+                try {
+                    current = (await fetchOdpis(krs, rejestr, "OdpisAktualny")).odpis;
+                } catch {
+                    current = null;
+                }
                 return {
-                    content: [{ type: "text", text: formatEntity(krs, odpis) }],
+                    content: [{ type: "text", text: formatFullHistory(krs, odpis, current) }],
                     structuredContent: {
-                        citations: [buildCitation(krs, odpis)],
+                        citations: [current ? buildCitation(krs, current) : buildHistoricalCitation(krs, odpis)],
+                        history_type: "odpis_pelny",
+                        current_extract_available: current !== null,
                     },
                 };
             }
