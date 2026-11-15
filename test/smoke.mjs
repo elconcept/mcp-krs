@@ -24,6 +24,20 @@ try {
   assert.notEqual(result.isError, true, JSON.stringify(result.structuredContent));
   assert.match(result.content?.[0]?.text ?? "", /ORLEN/i);
   assert.ok((result.structuredContent?.citations ?? []).length > 0, "citations are required");
+  const full = await client.callTool({
+    name: "get_entity_full",
+    arguments: { krs: "0000025237" },
+  });
+  assert.notEqual(full.isError, true, JSON.stringify(full.structuredContent));
+  const fullText = full.content?.[0]?.text ?? "";
+  assert.match(fullText, /ODPIS PELNY KRS 0000025237/);
+  assert.match(fullText, /PELNA HISTORIA WPISOW/);
+  assert.match(fullText, /nrWpisuWprow/);
+  assert.doesNotMatch(fullText, /\[object Object\]/);
+  assert.equal(full.structuredContent?.current_extract_available, true);
+  assert.equal(full.structuredContent?.citations?.[0]?.status, "aktywny");
+  console.log("PASS get_entity_full: history preserved, current status from current extract");
+
   console.log("PASS tools/list: 3 tools");
   console.log("PASS get_board: public KRS record returned with citations");
 } finally {
